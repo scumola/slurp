@@ -21,6 +21,7 @@ keys.txt (or whatever you choose to call it) is a plain text file containing you
 
 If you don't have this stuff, log into the Twitter dev center and create a new application.
 
-Modifications: 
-   Added compression
+Modifications 
+=============
+* Added compression
 

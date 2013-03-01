@@ -229,7 +229,7 @@ void read_auth_keys(const char *filename, int bufsize,
 void config_curlopts(CURL *curl, const char *url, FILE *outfile, void *prog_data)
 {
 	curl_easy_setopt(curl, CURLOPT_URL, url);
-	curl_easy_setopt(curl, CURLOPT_USERAGENT, "tweetslurp/0.1");
+	curl_easy_setopt(curl, CURLOPT_USERAGENT, "tweetslurp/0.2");
 
 	// libcurl will now fail on an HTTP error (>=400)
 	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
@@ -244,6 +244,8 @@ void config_curlopts(CURL *curl, const char *url, FILE *outfile, void *prog_data
 
 	curl_easy_setopt(curl, CURLOPT_PROGRESSFUNCTION, progress_callback);
 	curl_easy_setopt(curl, CURLOPT_PROGRESSDATA, (void *)prog_data);
+
+        curl_easy_setopt(curl, CURLOPT_ENCODING, "gzip");
 }
 
 /* reconnect_wait

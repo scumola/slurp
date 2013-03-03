@@ -5,6 +5,9 @@
 //  though I'd certainly be interested to hear
 //  what you're using it for. :)
 //
+//  Initial author: https://github.com/sigabrt/slurp
+//  Modified by: https://github.com/scumola/slurp
+//
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,7 +49,7 @@ int main(int argc, const char *argv[]) {
 	} else if (argc == 2) {
 		out = stdout;
 	} else {
-		printf("usage: %s keyfile [outfile]\n", argv[0]);
+		fprintf(stderr, "usage: %s keyfile [outfile]\n", argv[0]);
 		return 0;
 	}
 
@@ -152,7 +155,7 @@ int main(int argc, const char *argv[]) {
 		}
 	}
 
-	printf("Cleaning up...\n");
+	fprintf(stderr, "Cleaning up...\n");
 	curl_easy_cleanup(curl);
 	curl_global_cleanup();
 

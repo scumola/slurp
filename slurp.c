@@ -18,15 +18,13 @@
 
 #define DATA_TIMEOUT (90)
 
-typedef enum
-{
+typedef enum {
 	ERROR_TYPE_HTTP,
 	ERROR_TYPE_RATE_LIMITED,
 	ERROR_TYPE_SOCKET,
 } error_type;
 
-struct idletimer
-{
+struct idletimer {
 	int lastdl;
 	time_t idlestart;
 };
@@ -40,19 +38,14 @@ void reconnect_wait(error_type error);
 
 int progress_callback(void *clientp, double dltotal, double dlnow, double ultotal, double ulnow);
 
-int main(int argc, const char *argv[])
-{
+int main(int argc, const char *argv[]) {
 	FILE *out;
-	if(argc == 3)
-	{
+
+	if (argc == 3) {
 		out = fopen(argv[2], "w");
-	}
-	else if(argc == 2)
-	{
+	} else if (argc == 2) {
 		out = stdout;
-	}
-	else
-	{
+	} else {
 		printf("usage: %s keyfile [outfile]\n", argv[0]);
 		return 0;
 	}
@@ -67,9 +60,7 @@ int main(int argc, const char *argv[])
 	char *atoksecret = (char *)malloc(bufsize * sizeof(char));
 	read_auth_keys(argv[1], bufsize, ckey, csecret, atok, atoksecret);
 
-	if(ckey == NULL || csecret == NULL ||
-			atok == NULL || atoksecret == NULL)
-	{
+	if (ckey == NULL || csecret == NULL || atok == NULL || atoksecret == NULL) {
 		fprintf(stderr, "Couldn't read key file. Aborting...\n");
 		free(ckey);
 		free(csecret);
@@ -94,11 +85,9 @@ int main(int argc, const char *argv[])
 
 	int curlstatus, httpstatus;
 	char reconnect = 1;
-	while(reconnect)
-	{
+	while (reconnect) {
 		curlstatus = curl_easy_perform(curl);
-		switch(curlstatus)
-		{
+		switch (curlstatus) {
 			case 0: // Twitter closed the connection
 				fprintf(stderr, "Connection terminated. Attempting reconnect...\n");
 				reconnect_wait(ERROR_TYPE_SOCKET);
@@ -112,8 +101,7 @@ int main(int argc, const char *argv[])
 				break;
 			case CURLE_HTTP_RETURNED_ERROR:
 				curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpstatus);
-				switch(httpstatus)
-				{
+				switch (httpstatus) {
 					case 401:
 					case 403:
 					case 404:
@@ -193,26 +181,22 @@ void read_auth_keys(const char *filename, int bufsize,
 {
 	FILE *file = fopen(filename, "r");
 
-	if(fgets(ckey, bufsize, file) == NULL)
-	{
+	if (fgets(ckey, bufsize, file) == NULL) {
 		return;
 	}
 	ckey[strlen(ckey)-1] = '\0'; // Remove the newline
 
-	if(fgets(csecret, bufsize, file) == NULL)
-	{
+	if (fgets(csecret, bufsize, file) == NULL) {
 		return;
 	}
 	csecret[strlen(csecret)-1] = '\0';
 
-	if(fgets(atok, bufsize, file) == NULL)
-	{
+	if (fgets(atok, bufsize, file) == NULL) {
 		return;
 	}
 	atok[strlen(atok)-1] = '\0';
 
-	if(fgets(atoksecret, bufsize, file) == NULL)
-	{
+	if (fgets(atoksecret, bufsize, file) == NULL) {
 		return;
 	}
 	atoksecret[strlen(atoksecret)-1] = '\0';
@@ -226,8 +210,7 @@ void read_auth_keys(const char *filename, int bufsize,
  * outfile: file stream for retrieved data
  * prog_data: data to send to progress callback function
  */
-void config_curlopts(CURL *curl, const char *url, FILE *outfile, void *prog_data)
-{
+void config_curlopts(CURL *curl, const char *url, FILE *outfile, void *prog_data) {
 	curl_easy_setopt(curl, CURLOPT_URL, url);
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, "tweetslurp/0.2");
 
@@ -245,22 +228,20 @@ void config_curlopts(CURL *curl, const char *url, FILE *outfile, void *prog_data
 	curl_easy_setopt(curl, CURLOPT_PROGRESSFUNCTION, progress_callback);
 	curl_easy_setopt(curl, CURLOPT_PROGRESSDATA, (void *)prog_data);
 
-        curl_easy_setopt(curl, CURLOPT_ENCODING, "gzip");
+    curl_easy_setopt(curl, CURLOPT_ENCODING, "gzip");
 }
 
 /* reconnect_wait
  * bool_httperror: whether this was an http error or
  * 		not (i.e. it was a socket error)
  */
-void reconnect_wait(error_type error)
-{
+void reconnect_wait(error_type error) {
 	static int http_sleep_s = 5;
 	static int rate_limit_sleep_s = 60;
 	static long sock_sleep_ms = 250;
 
 	struct timespec t;
-	switch(error)
-	{
+	switch (error) {
 		case ERROR_TYPE_HTTP:
 			t.tv_sec = http_sleep_s;
 			t.tv_nsec = 0;
@@ -268,8 +249,7 @@ void reconnect_wait(error_type error)
 			// As per the streaming endpoint guidelines, double the
 			// delay until 320 seconds is reached
 			http_sleep_s *= 2;
-			if(http_sleep_s > 320)
-			{
+			if (http_sleep_s > 320) {
 				http_sleep_s = 320;
 			}
 			break;
@@ -288,8 +268,7 @@ void reconnect_wait(error_type error)
 			// As per the streaming endpoint guidelines, add 250ms
 			// for each successive attempt until 16 seconds is reached
 			sock_sleep_ms += 250;
-			if(sock_sleep_ms > 16000)
-			{
+			if (sock_sleep_ms > 16000) {
 				sock_sleep_ms = 16000;
 			}
 			break;
@@ -304,36 +283,28 @@ void reconnect_wait(error_type error)
 /* progress_callback
  * see libcURL docs for method sig details
  */
-int progress_callback(void *clientp, double dltotal, double dlnow, double ultotal, double ulnow)
-{
+int progress_callback(void *clientp, double dltotal, double dlnow, double ultotal, double ulnow) {
 	struct idletimer *timeout;
 	timeout = (struct idletimer *)clientp;
 
-	if(dlnow == 0) // No data was transferred this time...
-	{
+	if (dlnow == 0) { // No data was transferred this time...
 		// ...but some was last time:
-		if(timeout->lastdl != 0)
-		{
+		if (timeout->lastdl != 0) {
 			// so start the timer
 			timeout->idlestart = time(NULL);
 		}
 		// ...and 1) the timer has been started, and
 		// 2) we've hit the timeout:
-		else if(timeout->idlestart != 0 &&
-				(time(NULL) - timeout->idlestart) > DATA_TIMEOUT)
-		{
+		else if (timeout->idlestart != 0 && (time(NULL) - timeout->idlestart) > DATA_TIMEOUT) {
 			// so we reset the timer and return a non-zero
 			// value to abort the transfer
 			timeout->lastdl = 0;
 			timeout->idlestart = 0;
 			return 1;
 		}
-	}
-	else // We transferred some data...
-	{
+	} else {
 		// ...but we didn't last time:
-		if(timeout->lastdl == 0)
-		{
+		if (timeout->lastdl == 0) {
 			// so reset the timer
 			timeout->idlestart = 0;
 		}

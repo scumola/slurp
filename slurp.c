@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <oauth.h>
 #include <curl/curl.h>
+#include <time.h>
 
 #define MS_TO_NS (1000000)
 
@@ -32,14 +33,11 @@ struct idletimer {
 	time_t idlestart;
 };
 
-void read_auth_keys(const char *filename, int bufsize,
-		char *ckey, char *csecret, char *atok, char *atoksecret);
-
+void read_auth_keys(const char *filename, int bufsize, char *ckey, char *csecret, char *atok, char *atoksecret);
 void config_curlopts(CURL *curl, const char *url, FILE *outfile, void *prog_data);
-
 void reconnect_wait(error_type error);
-
 int progress_callback(void *clientp, double dltotal, double dlnow, double ultotal, double ulnow);
+void timestamp(void);
 
 int main(int argc, const char *argv[]) {
 	FILE *out;
@@ -92,6 +90,7 @@ int main(int argc, const char *argv[]) {
 		curlstatus = curl_easy_perform(curl);
 		switch (curlstatus) {
 			case 0: // Twitter closed the connection
+			    timestamp();
 				fprintf(stderr, "Connection terminated. Attempting reconnect...\n");
 				reconnect_wait(ERROR_TYPE_SOCKET);
 				curl_easy_cleanup(curl);
@@ -112,10 +111,12 @@ int main(int argc, const char *argv[]) {
 					case 413:
 					case 416:
 						// No reconnects with these errors
+                        timestamp();
 						fprintf(stderr, "Request failed with HTTP error %d. Aborting...\n", httpstatus);
 						reconnect = 0;
 						break;
 					case 420:
+                        timestamp();
 						fprintf(stderr, "Received rate limiting response, attempting reconnect...\n");
 						reconnect_wait(ERROR_TYPE_RATE_LIMITED);
 
@@ -123,6 +124,7 @@ int main(int argc, const char *argv[]) {
 						config_curlopts(curl, signedurl, out, (void *)&timeout);
 						break;
 					case 503:
+                        timestamp();
 						fprintf(stderr, "Received HTTP error %d, attempting reconnect...\n", httpstatus);
 						reconnect_wait(ERROR_TYPE_HTTP);
 
@@ -130,12 +132,14 @@ int main(int argc, const char *argv[]) {
 						config_curlopts(curl, signedurl, out, (void *)&timeout);
 						break;
 					default:
+                        timestamp();
 						fprintf(stderr, "Unexpected HTTP error %d. Aborting...\n", httpstatus);
 						reconnect = 0;
 						break;
 				}
 				break;
 			case CURLE_ABORTED_BY_CALLBACK:
+                timestamp();
 				fprintf(stderr, "Timeout, attempting reconnect...\n");
 				reconnect_wait(ERROR_TYPE_SOCKET);
 
@@ -144,6 +148,7 @@ int main(int argc, const char *argv[]) {
 				break;
 			default:
 				// Probably a socket error, attempt reconnnect
+                timestamp();
 				fprintf(stderr, "Unexpected error, attempting reconnect...\n");
 				reconnect_wait(ERROR_TYPE_SOCKET);
 
@@ -317,3 +322,15 @@ int progress_callback(void *clientp, double dltotal, double dlnow, double ultota
 	return 0;
 }
 
+void timestamp(void) {
+    char            fmt[64], buf[64];
+    struct timeval  tv;
+    struct tm       *tm;
+
+    gettimeofday(&tv, NULL);
+    if((tm = localtime(&tv.tv_sec)) != NULL) {
+        strftime(fmt, sizeof fmt, "%Y-%m-%d %H:%M:%S.%%06u %z", tm);
+        snprintf(buf, sizeof buf, fmt, tv.tv_usec);
+        fprintf(stderr, "%s ", buf);
+    }
+}

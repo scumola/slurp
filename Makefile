@@ -1,7 +1,7 @@
 PROJECT=slurp
 SOURCES=slurp.c
-INCPATHS=
-LIBPATHS=
+INCPATHS=/opt/local/include
+LIBPATHS=/opt/local/lib
 LDFLAGS=-lcurl -loauth
 CFLAGS=-c -Wall
 CC=gcc

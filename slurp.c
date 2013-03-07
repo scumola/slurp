@@ -17,6 +17,7 @@
 #include <oauth.h>
 #include <curl/curl.h>
 #include <time.h>
+#include <pthread.h>
 
 #define MS_TO_NS (1000000)
 
@@ -38,9 +39,23 @@ void config_curlopts(CURL *curl, const char *url, FILE *outfile, void *prog_data
 void reconnect_wait(error_type error);
 int progress_callback(void *clientp, double dltotal, double dlnow, double ultotal, double ulnow);
 void timestamp(void);
+void *slurp(void *);
+void *watchdog(void *);
+
+char *ckey, *csecret, *atok, *atoksecret;
+pthread_t t_watchdog;
+pthread_t t_slurper;
+FILE *out;
+
+void *watchdog (void *arg) {
+    while(1) {
+        fprintf(stderr, "****** PING ******\n");
+        sleep(1);
+    }
+}
 
 int main(int argc, const char *argv[]) {
-	FILE *out;
+    int error;
 
 	if (argc == 3) {
 		out = fopen(argv[2], "w");
@@ -55,10 +70,10 @@ int main(int argc, const char *argv[]) {
 	// You will need to create a new app if you haven't already
 	// The four keys should be on separate lines in this order:
 	int bufsize = 64;
-	char *ckey = (char *)malloc(bufsize * sizeof(char));
-	char *csecret = (char *)malloc(bufsize * sizeof(char));
-	char *atok = (char *)malloc(bufsize * sizeof(char));
-	char *atoksecret = (char *)malloc(bufsize * sizeof(char));
+	ckey = (char *)malloc(bufsize * sizeof(char));
+    csecret = (char *)malloc(bufsize * sizeof(char));
+    atok = (char *)malloc(bufsize * sizeof(char));
+    atoksecret = (char *)malloc(bufsize * sizeof(char));
 	read_auth_keys(argv[1], bufsize, ckey, csecret, atok, atoksecret);
 
 	if (ckey == NULL || csecret == NULL || atok == NULL || atoksecret == NULL) {
@@ -69,8 +84,31 @@ int main(int argc, const char *argv[]) {
 		free(atoksecret);
 		return 1;
 	}
-	
-	const char *url = "https://stream.twitter.com/1/statuses/sample.json";
+
+	error = pthread_create(&t_watchdog, NULL, watchdog, (void *)NULL);
+    if (0 != error) {
+        fprintf(stderr, "ERROR: Couldn't start slurp thread: %d\n", error);
+    }
+
+	error = pthread_create(&t_slurper, NULL, slurp, (void *)NULL);
+    if (0 != error) {
+        fprintf(stderr, "ERROR: Couldn't start slurp thread: %d\n", error);
+    }
+
+    error = pthread_join(t_slurper, NULL);
+
+	free(ckey);
+	free(csecret);
+	free(atok);
+	free(atoksecret);
+
+	fclose(out);
+	exit(0);
+}
+
+void *slurp (void *arg) {
+
+	const char *url = "https://stream.twitter.com/1.1/statuses/sample.json";
 
 	// Sign the URL with OAuth
 	char *signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
@@ -79,7 +117,7 @@ int main(int argc, const char *argv[]) {
 	CURL *curl = curl_easy_init();
 
 	struct idletimer timeout;
-	timeout.lastdl = 0;
+	timeout.lastdl = 1;
 	timeout.idlestart = 0;
 
 	config_curlopts(curl, signedurl, out, (void *)&timeout);
@@ -164,13 +202,7 @@ int main(int argc, const char *argv[]) {
 	curl_easy_cleanup(curl);
 	curl_global_cleanup();
 
-	free(ckey);
-	free(csecret);
-	free(atok);
-	free(atoksecret);
-	free(signedurl);
-
-	fclose(out);
+    free(signedurl);
 
 	return 0;
 }
@@ -270,8 +302,8 @@ void reconnect_wait(error_type error) {
 			rate_limit_sleep_s *= 2;
 			break;
 		case ERROR_TYPE_SOCKET:
-			t.tv_sec = 0;
-			t.tv_nsec = sock_sleep_ms;
+			t.tv_sec = sock_sleep_ms / 1000;
+			t.tv_nsec = (sock_sleep_ms % 1000) * MS_TO_NS;
 
 			// As per the streaming endpoint guidelines, add 250ms
 			// for each successive attempt until 16 seconds is reached
@@ -306,7 +338,7 @@ int progress_callback(void *clientp, double dltotal, double dlnow, double ultota
 		else if (timeout->idlestart != 0 && (time(NULL) - timeout->idlestart) > DATA_TIMEOUT) {
 			// so we reset the timer and return a non-zero
 			// value to abort the transfer
-			timeout->lastdl = 0;
+			timeout->lastdl = 1;
 			timeout->idlestart = 0;
 			return 1;
 		}

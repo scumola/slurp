@@ -70,11 +70,13 @@ void *watchdog (void *arg) {
         now = time(NULL);
         pthread_mutex_lock(&mutex_lastbyte_time);    // @@@@@@@@@@@@@
         if ((now - lastbyte_time) > 30) {
-            timestamp();
-            fprintf(stderr, "****** 30 seconds has expired since last byte received - DIE! ******\n");
-            pthread_cancel(t_slurper);
-            pthread_join(t_slurper, NULL);
-            sleep(5);
+            if (t_slurper > 0) {
+		    timestamp();
+		    fprintf(stderr, "****** 30 seconds has expired since last byte received - DIE! ******\n");
+		    pthread_cancel(t_slurper);
+		    pthread_join(t_slurper, NULL);
+		    sleep(5);
+            }
 
             timestamp();
             fprintf(stderr, "****** START NEW SLURP THREAD ******\n");

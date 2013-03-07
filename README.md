@@ -21,7 +21,8 @@ keys.txt (or whatever you choose to call it) is a plain text file containing you
 
 If you don't have this stuff, log into the Twitter dev center and create a new application.
 
-Modifications 
-=============
+Modifications by scumola
+========================
 * Added compression
+* Converted to threaded model.  One thread to pull the stream.  One as a watchdog.  Watchdog kills the stream if no data is flowing.
 

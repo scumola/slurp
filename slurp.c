@@ -6,7 +6,7 @@
 //  what you're using it for. :)
 //
 //  Initial author: https://github.com/sigabrt/slurp
-//  Modified by: https://github.com/scumola/slurp
+//  Modified for threads by: https://github.com/scumola/slurp
 //
 
 #include <stdio.h>
@@ -25,14 +25,14 @@
 #define DATA_TIMEOUT (90)
 
 typedef enum {
-	ERROR_TYPE_HTTP,
-	ERROR_TYPE_RATE_LIMITED,
-	ERROR_TYPE_SOCKET,
+    ERROR_TYPE_HTTP,
+    ERROR_TYPE_RATE_LIMITED,
+    ERROR_TYPE_SOCKET,
 } error_type;
 
 struct idletimer {
-	int lastdl;
-	time_t idlestart;
+    int lastdl;
+    time_t idlestart;
 };
 
 pthread_mutex_t mutex_lastbyte_time;
@@ -96,39 +96,39 @@ void *watchdog (void *arg) {
 int main(int argc, const char *argv[]) {
     int error;
 
-	if (argc == 2) {
-		out = stdout;
-	} else {
-		fprintf(stderr, "usage: %s keyfile\n", argv[0]);
-		return 0;
-	}
+    if (argc == 2) {
+        out = stdout;
+    } else {
+        fprintf(stderr, "usage: %s keyfile\n", argv[0]);
+        return 0;
+    }
 
-	// These may be found on your twitter dev page, under "Applications"
-	// You will need to create a new app if you haven't already
-	// The four keys should be on separate lines in this order:
-	int bufsize = 64;
-	ckey = (char *)malloc(bufsize * sizeof(char));
+    // These may be found on your twitter dev page, under "Applications"
+    // You will need to create a new app if you haven't already
+    // The four keys should be on separate lines in this order:
+    int bufsize = 64;
+    ckey = (char *)malloc(bufsize * sizeof(char));
     csecret = (char *)malloc(bufsize * sizeof(char));
     atok = (char *)malloc(bufsize * sizeof(char));
     atoksecret = (char *)malloc(bufsize * sizeof(char));
-	read_auth_keys(argv[1], bufsize, ckey, csecret, atok, atoksecret);
+    read_auth_keys(argv[1], bufsize, ckey, csecret, atok, atoksecret);
 
-	if (ckey == NULL || csecret == NULL || atok == NULL || atoksecret == NULL) {
-		fprintf(stderr, "Couldn't read key file. Aborting...\n");
-		free(ckey);
-		free(csecret);
-		free(atok);
-		free(atoksecret);
-		return 1;
-	}
+    if (ckey == NULL || csecret == NULL || atok == NULL || atoksecret == NULL) {
+        fprintf(stderr, "Couldn't read key file. Aborting...\n");
+        free(ckey);
+        free(csecret);
+        free(atok);
+        free(atoksecret);
+        return 1;
+    }
 
-//	error = pthread_create(&t_slurper, NULL, slurp, (void *)NULL);
+//    error = pthread_create(&t_slurper, NULL, slurp, (void *)NULL);
 //    if (0 != error) {
 //        timestamp();
 //        fprintf(stderr, "ERROR: Couldn't start slurp thread: %d\n", error);
 //    }
 
-	error = pthread_create(&t_watchdog, NULL, watchdog, (void *)NULL);
+    error = pthread_create(&t_watchdog, NULL, watchdog, (void *)NULL);
     if (0 != error) {
         timestamp();
         fprintf(stderr, "ERROR: Couldn't start watchdog thread: %d\n", error);
@@ -136,119 +136,119 @@ int main(int argc, const char *argv[]) {
 
     error = pthread_join(t_watchdog, NULL);
 
-	free(ckey);
-	free(csecret);
-	free(atok);
-	free(atoksecret);
+    free(ckey);
+    free(csecret);
+    free(atok);
+    free(atoksecret);
 
-	fclose(out);
-	exit(0);
+    fclose(out);
+    exit(0);
 }
 
 void *slurp (void *arg) {
 
-	const char *url = "https://stream.twitter.com/1.1/statuses/sample.json";
+    const char *url = "https://stream.twitter.com/1.1/statuses/sample.json";
 
-	// Sign the URL with OAuth
-	char *signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
+    // Sign the URL with OAuth
+    char *signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
 
-	curl_global_init(CURL_GLOBAL_ALL);
-	CURL *curl = curl_easy_init();
+    curl_global_init(CURL_GLOBAL_ALL);
+    CURL *curl = curl_easy_init();
 
-	struct idletimer timeout;
-	timeout.lastdl = 1;
-	timeout.idlestart = 0;
+    struct idletimer timeout;
+    timeout.lastdl = 1;
+    timeout.idlestart = 0;
 
-	config_curlopts(curl, signedurl, out, (void *)&timeout);
+    config_curlopts(curl, signedurl, out, (void *)&timeout);
 
-	int curlstatus, httpstatus;
-	char reconnect = 1;
-	while (reconnect) {
-		curlstatus = curl_easy_perform(curl);
-		switch (curlstatus) {
-			case 0: // Twitter closed the connection
-			    timestamp();
-				fprintf(stderr, "Connection terminated. Attempting reconnect...\n");
-				reconnect_wait(ERROR_TYPE_SOCKET);
-				curl_easy_cleanup(curl);
-				curl = curl_easy_init();
-
-				// The signed URL contains a timestamp, so it needs to be
-				// regenerated each time we reconnect or else we'll get a 401
-				signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
-				config_curlopts(curl, signedurl, out, (void *)&timeout);
-				break;
-			case CURLE_HTTP_RETURNED_ERROR:
-				curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpstatus);
-				switch (httpstatus) {
-					case 401:
-					case 403:
-					case 404:
-					case 406:
-					case 413:
-					case 416:
-						// No reconnects with these errors
-                        timestamp();
-						fprintf(stderr, "Request failed with HTTP error %d. Aborting...\n", httpstatus);
-						reconnect = 0;
-						break;
-					case 420:
-                        timestamp();
-						fprintf(stderr, "Received rate limiting response, attempting reconnect...\n");
-						reconnect_wait(ERROR_TYPE_RATE_LIMITED);
-
-						signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
-						config_curlopts(curl, signedurl, out, (void *)&timeout);
-						break;
-					case 503:
-                        timestamp();
-						fprintf(stderr, "Received HTTP error %d, attempting reconnect...\n", httpstatus);
-						reconnect_wait(ERROR_TYPE_HTTP);
-
-						signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
-						config_curlopts(curl, signedurl, out, (void *)&timeout);
-						break;
-					default:
-                        timestamp();
-						fprintf(stderr, "Unexpected HTTP error %d. Aborting...\n", httpstatus);
-						reconnect = 0;
-						break;
-				}
-				break;
-			case CURLE_ABORTED_BY_CALLBACK:
+    int curlstatus, httpstatus;
+    char reconnect = 1;
+    while (reconnect) {
+        curlstatus = curl_easy_perform(curl);
+        switch (curlstatus) {
+            case 0: // Twitter closed the connection
                 timestamp();
-				fprintf(stderr, "Timeout, attempting reconnect...\n");
-				reconnect_wait(ERROR_TYPE_SOCKET);
+                fprintf(stderr, "Connection terminated. Attempting reconnect...\n");
+                reconnect_wait(ERROR_TYPE_SOCKET);
+                curl_easy_cleanup(curl);
+                curl = curl_easy_init();
 
-				signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
-				config_curlopts(curl, signedurl, out, (void *)&timeout);
-				break;
-			default:
-				// Probably a socket error, attempt reconnnect
+                // The signed URL contains a timestamp, so it needs to be
+                // regenerated each time we reconnect or else we'll get a 401
+                signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
+                config_curlopts(curl, signedurl, out, (void *)&timeout);
+                break;
+            case CURLE_HTTP_RETURNED_ERROR:
+                curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpstatus);
+                switch (httpstatus) {
+                    case 401:
+                    case 403:
+                    case 404:
+                    case 406:
+                    case 413:
+                    case 416:
+                        // No reconnects with these errors
+                        timestamp();
+                        fprintf(stderr, "Request failed with HTTP error %d. Aborting...\n", httpstatus);
+                        reconnect = 0;
+                        break;
+                    case 420:
+                        timestamp();
+                        fprintf(stderr, "Received rate limiting response, attempting reconnect...\n");
+                        reconnect_wait(ERROR_TYPE_RATE_LIMITED);
+
+                        signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
+                        config_curlopts(curl, signedurl, out, (void *)&timeout);
+                        break;
+                    case 503:
+                        timestamp();
+                        fprintf(stderr, "Received HTTP error %d, attempting reconnect...\n", httpstatus);
+                        reconnect_wait(ERROR_TYPE_HTTP);
+
+                        signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
+                        config_curlopts(curl, signedurl, out, (void *)&timeout);
+                        break;
+                    default:
+                        timestamp();
+                        fprintf(stderr, "Unexpected HTTP error %d. Aborting...\n", httpstatus);
+                        reconnect = 0;
+                        break;
+                }
+                break;
+            case CURLE_ABORTED_BY_CALLBACK:
                 timestamp();
-				fprintf(stderr, "Unexpected error, attempting reconnect...\n");
-				reconnect_wait(ERROR_TYPE_SOCKET);
+                fprintf(stderr, "Timeout, attempting reconnect...\n");
+                reconnect_wait(ERROR_TYPE_SOCKET);
 
-				curl_easy_cleanup(curl);
-				curl = curl_easy_init();
-				signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
-				config_curlopts(curl, signedurl, out, (void *)&timeout);
-				break;
-		}
-	}
+                signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
+                config_curlopts(curl, signedurl, out, (void *)&timeout);
+                break;
+            default:
+                // Probably a socket error, attempt reconnnect
+                timestamp();
+                fprintf(stderr, "Unexpected error, attempting reconnect...\n");
+                reconnect_wait(ERROR_TYPE_SOCKET);
 
-	fprintf(stderr, "Cleaning up...\n");
-	curl_easy_cleanup(curl);
-	curl_global_cleanup();
+                curl_easy_cleanup(curl);
+                curl = curl_easy_init();
+                signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
+                config_curlopts(curl, signedurl, out, (void *)&timeout);
+                break;
+        }
+    }
+
+    fprintf(stderr, "Cleaning up...\n");
+    curl_easy_cleanup(curl);
+    curl_global_cleanup();
 
     free(signedurl);
 
-	return 0;
+    return 0;
 }
 
 /* read_auth_keys
  * filename: The name of the text file containing
- * 		the keys
+ *         the keys
  * bufsize: The maximum number of characters to read per line
  * ckey: Consumer key, must be allocated already
  * csecret: Consumer secret, must be allocated already
@@ -256,31 +256,31 @@ void *slurp (void *arg) {
  * atoksecret: App token secret, must be allocated already
  */
 void read_auth_keys(const char *filename, int bufsize,
-		char *ckey, char *csecret, char *atok, char *atoksecret)
+        char *ckey, char *csecret, char *atok, char *atoksecret)
 {
-	FILE *file = fopen(filename, "r");
+    FILE *file = fopen(filename, "r");
 
-	if (fgets(ckey, bufsize, file) == NULL) {
-		return;
-	}
-	ckey[strlen(ckey)-1] = '\0'; // Remove the newline
+    if (fgets(ckey, bufsize, file) == NULL) {
+        return;
+    }
+    ckey[strlen(ckey)-1] = '\0'; // Remove the newline
 
-	if (fgets(csecret, bufsize, file) == NULL) {
-		return;
-	}
-	csecret[strlen(csecret)-1] = '\0';
+    if (fgets(csecret, bufsize, file) == NULL) {
+        return;
+    }
+    csecret[strlen(csecret)-1] = '\0';
 
-	if (fgets(atok, bufsize, file) == NULL) {
-		return;
-	}
-	atok[strlen(atok)-1] = '\0';
+    if (fgets(atok, bufsize, file) == NULL) {
+        return;
+    }
+    atok[strlen(atok)-1] = '\0';
 
-	if (fgets(atoksecret, bufsize, file) == NULL) {
-		return;
-	}
-	atoksecret[strlen(atoksecret)-1] = '\0';
+    if (fgets(atoksecret, bufsize, file) == NULL) {
+        return;
+    }
+    atoksecret[strlen(atoksecret)-1] = '\0';
 
-	fclose(file);
+    fclose(file);
 }
 
 /* config_curlopts
@@ -290,22 +290,22 @@ void read_auth_keys(const char *filename, int bufsize,
  * prog_data: data to send to progress callback function
  */
 void config_curlopts(CURL *curl, const char *url, FILE *outfile, void *prog_data) {
-	curl_easy_setopt(curl, CURLOPT_URL, url);
-	curl_easy_setopt(curl, CURLOPT_USERAGENT, "tweetslurp/0.2");
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "tweetslurp/0.2");
 
-	// libcurl will now fail on an HTTP error (>=400)
-	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
+    // libcurl will now fail on an HTTP error (>=400)
+    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
 
-	// If no data callback is specified, libcurl will
-	// write data to stdout or the file in writedata
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)outfile);
+    // If no data callback is specified, libcurl will
+    // write data to stdout or the file in writedata
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)outfile);
 
-	// noprogress must be set to 0 for a user-defined
-	// progress method to be called
-	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0);
+    // noprogress must be set to 0 for a user-defined
+    // progress method to be called
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0);
 
-	curl_easy_setopt(curl, CURLOPT_PROGRESSFUNCTION, progress_callback);
-	curl_easy_setopt(curl, CURLOPT_PROGRESSDATA, (void *)prog_data);
+    curl_easy_setopt(curl, CURLOPT_PROGRESSFUNCTION, progress_callback);
+    curl_easy_setopt(curl, CURLOPT_PROGRESSDATA, (void *)prog_data);
 
     curl_easy_setopt(curl, CURLOPT_ENCODING, "gzip");
 
@@ -314,85 +314,85 @@ void config_curlopts(CURL *curl, const char *url, FILE *outfile, void *prog_data
 
 /* reconnect_wait
  * bool_httperror: whether this was an http error or
- * 		not (i.e. it was a socket error)
+ *         not (i.e. it was a socket error)
  */
 void reconnect_wait(error_type error) {
-	static int http_sleep_s = 5;
-	static int rate_limit_sleep_s = 60;
-	static long sock_sleep_ms = 250;
+    static int http_sleep_s = 5;
+    static int rate_limit_sleep_s = 60;
+    static long sock_sleep_ms = 250;
 
-	struct timespec t;
-	switch (error) {
-		case ERROR_TYPE_HTTP:
-			t.tv_sec = http_sleep_s;
-			t.tv_nsec = 0;
+    struct timespec t;
+    switch (error) {
+        case ERROR_TYPE_HTTP:
+            t.tv_sec = http_sleep_s;
+            t.tv_nsec = 0;
 
-			// As per the streaming endpoint guidelines, double the
-			// delay until 320 seconds is reached
-			http_sleep_s *= 2;
-			if (http_sleep_s > 320) {
-				http_sleep_s = 320;
-			}
-			break;
-		case ERROR_TYPE_RATE_LIMITED:
-			t.tv_sec = rate_limit_sleep_s;
-			t.tv_nsec = 0;
+            // As per the streaming endpoint guidelines, double the
+            // delay until 320 seconds is reached
+            http_sleep_s *= 2;
+            if (http_sleep_s > 320) {
+                http_sleep_s = 320;
+            }
+            break;
+        case ERROR_TYPE_RATE_LIMITED:
+            t.tv_sec = rate_limit_sleep_s;
+            t.tv_nsec = 0;
 
-			// As per the streaming endpoint guidelines, double the
-			// delay
-			rate_limit_sleep_s *= 2;
-			break;
-		case ERROR_TYPE_SOCKET:
-			t.tv_sec = sock_sleep_ms / 1000;
-			t.tv_nsec = (sock_sleep_ms % 1000) * MS_TO_NS;
+            // As per the streaming endpoint guidelines, double the
+            // delay
+            rate_limit_sleep_s *= 2;
+            break;
+        case ERROR_TYPE_SOCKET:
+            t.tv_sec = sock_sleep_ms / 1000;
+            t.tv_nsec = (sock_sleep_ms % 1000) * MS_TO_NS;
 
-			// As per the streaming endpoint guidelines, add 250ms
-			// for each successive attempt until 16 seconds is reached
-			sock_sleep_ms += 250;
-			if (sock_sleep_ms > 16000) {
-				sock_sleep_ms = 16000;
-			}
-			break;
-		default:
-			t.tv_sec = 0;
-			t.tv_nsec = 0;
-			break;
-	}
-	nanosleep(&t, NULL);
+            // As per the streaming endpoint guidelines, add 250ms
+            // for each successive attempt until 16 seconds is reached
+            sock_sleep_ms += 250;
+            if (sock_sleep_ms > 16000) {
+                sock_sleep_ms = 16000;
+            }
+            break;
+        default:
+            t.tv_sec = 0;
+            t.tv_nsec = 0;
+            break;
+    }
+    nanosleep(&t, NULL);
 }
 
 /* progress_callback
  * see libcURL docs for method sig details
  */
 int progress_callback(void *clientp, double dltotal, double dlnow, double ultotal, double ulnow) {
-	struct idletimer *timeout;
-	timeout = (struct idletimer *)clientp;
+    struct idletimer *timeout;
+    timeout = (struct idletimer *)clientp;
 
-	if (dlnow == 0) { // No data was transferred this time...
+    if (dlnow == 0) { // No data was transferred this time...
         // ...but some was last time:
-		if (timeout->lastdl != 0) {
-			// so start the timer
-			timeout->idlestart = time(NULL);
-		}
-		// ...and 1) the timer has been started, and
-		// 2) we've hit the timeout:
-		else if (timeout->idlestart != 0 && (time(NULL) - timeout->idlestart) > DATA_TIMEOUT) {
-			// so we reset the timer and return a non-zero
-			// value to abort the transfer
-			timeout->lastdl = 1;
-			timeout->idlestart = 0;
-			return 1;
-		}
-	} else {
-		// ...but we didn't last time:
-		if (timeout->lastdl == 0) {
-			// so reset the timer
-			timeout->idlestart = 0;
-		}
-	}
+        if (timeout->lastdl != 0) {
+            // so start the timer
+            timeout->idlestart = time(NULL);
+        }
+        // ...and 1) the timer has been started, and
+        // 2) we've hit the timeout:
+        else if (timeout->idlestart != 0 && (time(NULL) - timeout->idlestart) > DATA_TIMEOUT) {
+            // so we reset the timer and return a non-zero
+            // value to abort the transfer
+            timeout->lastdl = 1;
+            timeout->idlestart = 0;
+            return 1;
+        }
+    } else {
+        // ...but we didn't last time:
+        if (timeout->lastdl == 0) {
+            // so reset the timer
+            timeout->idlestart = 0;
+        }
+    }
 
-	timeout->lastdl = dlnow;
-	return 0;
+    timeout->lastdl = dlnow;
+    return 0;
 }
 
 void timestamp(void) {

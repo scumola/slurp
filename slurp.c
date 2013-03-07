@@ -18,9 +18,9 @@
 #include <curl/curl.h>
 #include <time.h>
 #include <pthread.h>
-#include <signal.h>
 
 #define MS_TO_NS (1000000)
+#define IOBUFF_SIZE 32*1024
 
 #define DATA_TIMEOUT (90)
 
@@ -35,6 +35,9 @@ struct idletimer {
 	time_t idlestart;
 };
 
+pthread_mutex_t mutex_lastbyte_time;
+time_t lastbyte_time;
+
 void read_auth_keys(const char *filename, int bufsize, char *ckey, char *csecret, char *atok, char *atoksecret);
 void config_curlopts(CURL *curl, const char *url, FILE *outfile, void *prog_data);
 void reconnect_wait(error_type error);
@@ -48,34 +51,55 @@ pthread_t t_watchdog;
 pthread_t t_slurper;
 FILE *out;
 
+size_t my_write_func(void *ptr, size_t size, size_t nmemb, FILE *stream) {
+    char outbuff[IOBUFF_SIZE];
+    setbuf(stream, outbuff);
+
+    pthread_mutex_lock(&mutex_lastbyte_time);
+    lastbyte_time = time(NULL);
+    pthread_mutex_unlock(&mutex_lastbyte_time);
+
+    return fwrite(ptr, size, nmemb, stream);
+}
+
 void *watchdog (void *arg) {
     int error;
-    while(1) {
-        timestamp();
-        fprintf(stderr, "****** DIE ******\n");
-        pthread_cancel(t_slurper);
-        sleep(4);
+    time_t now;
 
-        timestamp();
-        fprintf(stderr, "****** START ******\n");
-        error = pthread_create(&t_slurper, NULL, slurp, (void *)NULL);
-        if (0 != error) {
+    while(1) {
+        now = time(NULL);
+        pthread_mutex_lock(&mutex_lastbyte_time);    // @@@@@@@@@@@@@
+        if ((now - lastbyte_time) > 30) {
             timestamp();
-            fprintf(stderr, "ERROR: Couldn't start slurp thread: %d\n", error);
+            fprintf(stderr, "****** 30 seconds has expired since last byte received - DIE! ******\n");
+            pthread_cancel(t_slurper);
+            pthread_join(t_slurper, NULL);
+            sleep(5);
+
+            timestamp();
+            fprintf(stderr, "****** START NEW SLURP THREAD ******\n");
+            error = pthread_create(&t_slurper, NULL, slurp, (void *)NULL);
+            if (0 != error) {
+                timestamp();
+                fprintf(stderr, "ERROR: Couldn't start slurp thread: %d\n", error);
+            }
+            lastbyte_time = time(NULL);
         }
-        sleep(4);
+        pthread_mutex_unlock(&mutex_lastbyte_time);  // @@@@@@@@@@@@@
+//        timestamp();
+//        fprintf(stderr, "****** PING [ %d %d ] ******\n",(int) lastbyte_time, (int) now);
+
+        sleep(1);
     }
 }
 
 int main(int argc, const char *argv[]) {
     int error;
 
-	if (argc == 3) {
-		out = fopen(argv[2], "w");
-	} else if (argc == 2) {
+	if (argc == 2) {
 		out = stdout;
 	} else {
-		fprintf(stderr, "usage: %s keyfile [outfile]\n", argv[0]);
+		fprintf(stderr, "usage: %s keyfile\n", argv[0]);
 		return 0;
 	}
 
@@ -98,16 +122,16 @@ int main(int argc, const char *argv[]) {
 		return 1;
 	}
 
-	error = pthread_create(&t_slurper, NULL, slurp, (void *)NULL);
-    if (0 != error) {
-        timestamp();
-        fprintf(stderr, "ERROR: Couldn't start slurp thread: %d\n", error);
-    }
+//	error = pthread_create(&t_slurper, NULL, slurp, (void *)NULL);
+//    if (0 != error) {
+//        timestamp();
+//        fprintf(stderr, "ERROR: Couldn't start slurp thread: %d\n", error);
+//    }
 
 	error = pthread_create(&t_watchdog, NULL, watchdog, (void *)NULL);
     if (0 != error) {
         timestamp();
-        fprintf(stderr, "ERROR: Couldn't start slurp thread: %d\n", error);
+        fprintf(stderr, "ERROR: Couldn't start watchdog thread: %d\n", error);
     }
 
     error = pthread_join(t_watchdog, NULL);
@@ -284,6 +308,8 @@ void config_curlopts(CURL *curl, const char *url, FILE *outfile, void *prog_data
 	curl_easy_setopt(curl, CURLOPT_PROGRESSDATA, (void *)prog_data);
 
     curl_easy_setopt(curl, CURLOPT_ENCODING, "gzip");
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, my_write_func);
 }
 
 /* reconnect_wait
@@ -343,7 +369,7 @@ int progress_callback(void *clientp, double dltotal, double dlnow, double ultota
 	timeout = (struct idletimer *)clientp;
 
 	if (dlnow == 0) { // No data was transferred this time...
-		// ...but some was last time:
+        // ...but some was last time:
 		if (timeout->lastdl != 0) {
 			// so start the timer
 			timeout->idlestart = time(NULL);

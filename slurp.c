@@ -49,6 +49,7 @@ FILE *out;
 
 void *watchdog (void *arg) {
     while(1) {
+        timestamp();
         fprintf(stderr, "****** PING ******\n");
         sleep(1);
     }
@@ -87,11 +88,13 @@ int main(int argc, const char *argv[]) {
 
 	error = pthread_create(&t_watchdog, NULL, watchdog, (void *)NULL);
     if (0 != error) {
+        timestamp();
         fprintf(stderr, "ERROR: Couldn't start slurp thread: %d\n", error);
     }
 
 	error = pthread_create(&t_slurper, NULL, slurp, (void *)NULL);
     if (0 != error) {
+        timestamp();
         fprintf(stderr, "ERROR: Couldn't start slurp thread: %d\n", error);
     }
 
@@ -363,6 +366,6 @@ void timestamp(void) {
     if((tm = localtime(&tv.tv_sec)) != NULL) {
         strftime(fmt, sizeof fmt, "%Y-%m-%d %H:%M:%S.%%06u %z", tm);
         snprintf(buf, sizeof buf, fmt, tv.tv_usec);
-        fprintf(stderr, "%s ", buf);
+        fprintf(stderr, "%s - ", buf);
     }
 }

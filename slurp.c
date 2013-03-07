@@ -110,11 +110,7 @@ int main(int argc, const char *argv[]) {
         fprintf(stderr, "ERROR: Couldn't start slurp thread: %d\n", error);
     }
 
-//    error = pthread_join(t_slurper, NULL);
-
-    while (1) {
-        sleep (1);
-    }
+    error = pthread_join(t_watchdog, NULL);
 
 	free(ckey);
 	free(csecret);

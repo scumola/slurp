@@ -18,6 +18,7 @@
 #include <curl/curl.h>
 #include <time.h>
 #include <pthread.h>
+#include <signal.h>
 
 #define MS_TO_NS (1000000)
 
@@ -48,10 +49,21 @@ pthread_t t_slurper;
 FILE *out;
 
 void *watchdog (void *arg) {
+    int error;
     while(1) {
         timestamp();
-        fprintf(stderr, "****** PING ******\n");
-        sleep(1);
+        fprintf(stderr, "****** DIE ******\n");
+        pthread_cancel(t_slurper);
+        sleep(4);
+
+        timestamp();
+        fprintf(stderr, "****** START ******\n");
+        error = pthread_create(&t_slurper, NULL, slurp, (void *)NULL);
+        if (0 != error) {
+            timestamp();
+            fprintf(stderr, "ERROR: Couldn't start slurp thread: %d\n", error);
+        }
+        sleep(4);
     }
 }
 
@@ -86,19 +98,23 @@ int main(int argc, const char *argv[]) {
 		return 1;
 	}
 
-	error = pthread_create(&t_watchdog, NULL, watchdog, (void *)NULL);
-    if (0 != error) {
-        timestamp();
-        fprintf(stderr, "ERROR: Couldn't start slurp thread: %d\n", error);
-    }
-
 	error = pthread_create(&t_slurper, NULL, slurp, (void *)NULL);
     if (0 != error) {
         timestamp();
         fprintf(stderr, "ERROR: Couldn't start slurp thread: %d\n", error);
     }
 
-    error = pthread_join(t_slurper, NULL);
+	error = pthread_create(&t_watchdog, NULL, watchdog, (void *)NULL);
+    if (0 != error) {
+        timestamp();
+        fprintf(stderr, "ERROR: Couldn't start slurp thread: %d\n", error);
+    }
+
+//    error = pthread_join(t_slurper, NULL);
+
+    while (1) {
+        sleep (1);
+    }
 
 	free(ckey);
 	free(csecret);
